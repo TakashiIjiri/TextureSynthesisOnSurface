@@ -188,6 +188,7 @@
     <ClInclude Include="COMMON\expmap.h" />
     <ClInclude Include="COMMON\OglForMFC.h" />
     <ClInclude Include="COMMON\OglImage.h" />
+    <ClInclude Include="COMMON\texsynthesissurface.h" />
     <ClInclude Include="COMMON\tmarchingcubes.h" />
     <ClInclude Include="COMMON\tmath.h" />
     <ClInclude Include="COMMON\tmesh.h" />
@@ -202,6 +203,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="COMMON\expmap.cpp" />
+    <ClCompile Include="COMMON\texsynthesissurface.cpp" />
     <ClCompile Include="MainFrm.cpp" />
     <ClCompile Include="SimpleObjViewer.cpp" />
     <ClCompile Include="SimpleObjViewerDoc.cpp" />

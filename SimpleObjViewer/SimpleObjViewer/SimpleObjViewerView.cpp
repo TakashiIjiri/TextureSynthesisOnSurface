@@ -11,7 +11,8 @@
 
 #include "SimpleObjViewerDoc.h"
 #include "SimpleObjViewerView.h"
-//#include "expmap.h"
+
+#include "texsynthesissurface.h"
 
 #include <map>
 
@@ -74,7 +75,7 @@ CSimpleObjViewerView::CSimpleObjViewerView()
 	
 	m_mesh.initialize(dlg.GetPathName());
 
-	EVec3f gc = m_mesh.getGravityCenter();
+	EVec3d gc = m_mesh.getGravityCenter();
 	m_mesh.Translate( -gc );
 	m_mesh.updateNormal();
 
@@ -83,8 +84,28 @@ CSimpleObjViewerView::CSimpleObjViewerView()
 	CFileDialog dlg1(TRUE, NULL, NULL, OFN_HIDEREADONLY, "texture (*.bmp;*.jpg)|*.bmp;*.jpg||");
 	if (dlg1.DoModal() != IDOK) exit(0);
 	bool flip;
-	m_texture.Allocate( dlg1.GetPathName(), flip);
+	sample.AllocateFromFile( dlg1.GetPathName(), flip, 0);
+
+
+
+	//compute flow field
+	vector<EVec3d> pFlow( m_mesh.m_pSize );
+
+	for( int i=0; i < m_mesh.m_pSize ; ++i)
+	{	
+		EVec3d &n = m_mesh.m_p_norms[i];
+		pFlow[i] << 1,0,0;
+		pFlow[i] = pFlow[i] - pFlow[i].dot(n) * n;
+		pFlow[i].normalize();
+	}
+
+	TextureSynthesisOnSurface( m_mesh, pFlow, sample, 5, 0.01, 2000, 2000, m_texture);
+
+
+
 }
+
+
 
 CSimpleObjViewerView::~CSimpleObjViewerView()
 {
@@ -153,7 +174,6 @@ CSimpleObjViewerDoc* CSimpleObjViewerView::GetDocument() const // デバッグ以外の
 
 // CSimpleObjViewerView メッセージ ハンドラー
 
-	TMesh     m_mesh;
 
 int CSimpleObjViewerView::OnCreate(LPCREATESTRUCT lpCreateStruct)
 {
@@ -161,7 +181,7 @@ int CSimpleObjViewerView::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		return -1;
 
 	m_ogl.OnCreate(this);
-	m_ogl.SetCam( EVec3f(0,0,10), EVec3f(0,0,0), EVec3f(0,1,0));
+	m_ogl.SetCam( EVec3d(0,0,10), EVec3d(0,0,0), EVec3d(0,1,0));
 
 	return 0;
 }
@@ -222,24 +242,24 @@ void CSimpleObjViewerView::OnPaint()
 	glEnable( GL_LIGHT1);
 	glEnable( GL_LIGHT2);
 	glEnable( GL_TEXTURE_2D );
-	m_texture.bindOgl();
+
+	m_texture.Bind(0);
 	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR , spec);
 	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE  , diff);
 	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT  , ambi);
 	glMaterialfv(GL_FRONT_AND_BACK, GL_SHININESS, shin);
-	EVec3f *Vs = m_mesh.m_vVerts;
-	EVec3f *Ns = m_mesh.m_vNorms;
-	TPoly  *Ps = m_mesh.m_pPolys;
+	EVec3d *Vs = m_mesh.m_verts  ;
+	EVec3d *Ns = m_mesh.m_v_norms;
+	TPoly  *Ps = m_mesh.m_polys  ;
 
-	const float SCALE = 0.1f;
 
 	glBegin( GL_TRIANGLES );
 	for(int p=0; p < m_mesh.m_pSize; ++p)
 	{
-		int *idx = Ps[p].idx;
-		glTexCoord2fv(m_expMap[idx[0]].pos.data()); glNormal3fv(Ns[idx[0]].data()); glVertex3fv(Vs[idx[0]].data());
-		glTexCoord2fv(m_expMap[idx[1]].pos.data()); glNormal3fv(Ns[idx[1]].data()); glVertex3fv(Vs[idx[1]].data());
-		glTexCoord2fv(m_expMap[idx[2]].pos.data()); glNormal3fv(Ns[idx[2]].data()); glVertex3fv(Vs[idx[2]].data());
+		int *idx = Ps[p].vIdx;
+		glTexCoord2dv(m_expMap[idx[0]].pos.data()); glNormal3dv(Ns[idx[0]].data()); glVertex3dv(Vs[idx[0]].data());
+		glTexCoord2dv(m_expMap[idx[1]].pos.data()); glNormal3dv(Ns[idx[1]].data()); glVertex3dv(Vs[idx[1]].data());
+		glTexCoord2dv(m_expMap[idx[2]].pos.data()); glNormal3dv(Ns[idx[2]].data()); glVertex3dv(Vs[idx[2]].data());
 	}
 	glEnd();
 
@@ -269,7 +289,7 @@ void CSimpleObjViewerView::OnPaint()
 		for (const auto startS : visPathVerts)
 		{
 			glBegin( GL_LINE_STRIP );
-			for( int piv = startS; piv >= 0; piv = m_expMap[piv].from) glVertex3fv( m_mesh.m_vVerts[piv].data() );
+			for( int piv = startS; piv >= 0; piv = m_expMap[piv].from) glVertex3dv( m_mesh.m_verts[piv].data() );
 			glEnd();
 		}
 	}
@@ -308,27 +328,27 @@ void CSimpleObjViewerView::OnLButtonUp(UINT nFlags, CPoint point)
 void CSimpleObjViewerView::OnRButtonDown(UINT nFlags, CPoint point)
 {
 	m_bR = true;
-	m_ogl.BtnDown_Rot(point);
+	m_ogl.ButtonDownForRotate(point);
 }
 
 
 void CSimpleObjViewerView::OnRButtonUp(UINT nFlags, CPoint point)
 {
 	m_bR = false;
-	m_ogl.BtnUp();
+	m_ogl.ButtonUp();
 }
 
 
 void CSimpleObjViewerView::OnMButtonDown(UINT nFlags, CPoint point)
 {
 	m_bM = true;
-	m_ogl.BtnDown_Zoom(point);
+	m_ogl.ButtonDownForZoom(point);
 }
 
 void CSimpleObjViewerView::OnMButtonUp(UINT nFlags, CPoint point)
 {
 	m_bM = false;
-	m_ogl.BtnUp();
+	m_ogl.ButtonUp();
 }
 
 
@@ -338,33 +358,34 @@ void CSimpleObjViewerView::OnMouseMove(UINT nFlags, CPoint point)
 	if (m_bL)
 	{
 		int polyIdx;
-		EVec3f rayP,rayD, pos;
+		EVec3d rayP,rayD, pos;
 		m_ogl.GetCursorRay( point , rayP, rayD);
+
 		if (m_mesh.pickByRay(rayP, rayD, pos, polyIdx))
 		{
 			expnentialMapping( m_mesh, pos, polyIdx, m_expMap);
 
-			float scale = 0.03f;
+			double scale = 0.03;
 			for( auto &p : m_expMap)
 			{
 				p.pos *= scale;
-				p.pos += EVec2f(0.5f, 0.5f);
+				p.pos += EVec2d(0.5f, 0.5f);
 
-				if( p.pos[0] < 0.1f) p.pos[0] = 0.1f;
-				if( p.pos[1] < 0.1f) p.pos[1] = 0.1f;
-				if( p.pos[0] > 0.9f) p.pos[0] = 0.9f;
-				if( p.pos[1] > 0.9f) p.pos[1] = 0.9f;
+				if( p.pos[0] < 0.1) p.pos[0] = 0.1;
+				if( p.pos[1] < 0.1) p.pos[1] = 0.1;
+				if( p.pos[0] > 0.9) p.pos[0] = 0.9;
+				if( p.pos[1] > 0.9) p.pos[1] = 0.9;
 
 			}
 		}
-		m_ogl.Redraw();
+		m_ogl.RedrawWindow();
 	}
 
 
 	if (m_bR || m_bM)
 	{
 		m_ogl.MouseMove( point );
-		m_ogl.Redraw();
+		m_ogl.RedrawWindow();
 	}
 
 	CView::OnMouseMove(nFlags, point);

@@ -63,6 +63,9 @@
     <ClInclude Include="COMMON\expmap.h">
       <Filter>COMMON</Filter>
     </ClInclude>
+    <ClInclude Include="COMMON\texsynthesissurface.h">
+      <Filter>COMMON</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="SimpleObjViewer.cpp">
@@ -81,6 +84,9 @@
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="COMMON\expmap.cpp">
+      <Filter>COMMON</Filter>
+    </ClCompile>
+    <ClCompile Include="COMMON\texsynthesissurface.cpp">
       <Filter>COMMON</Filter>
     </ClCompile>
   </ItemGroup>

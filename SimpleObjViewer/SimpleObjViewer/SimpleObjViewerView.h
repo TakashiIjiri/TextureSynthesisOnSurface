@@ -4,18 +4,18 @@
 
 #pragma once
 
-#include "./COMMON/OglForMFC.h"
-#include "./COMMON/tmesh.h"
-#include "./COMMON/OglImage.h"
+#include "./COMMON/TOGL.h"
+#include "./COMMON/ttexmesh.h"
+#include "./COMMON/timage.h"
 #include "expmap.h"
 
 
 
 class CSimpleObjViewerView : public CView
 {
-	OglForMFC		  m_ogl    ;
-	TMesh			  m_mesh   ;
-	OGLImage2D4       m_texture;
+	TOGL		      m_ogl    ;
+	TTexMesh	      m_mesh   ;
+	TImage2D          m_texture;
 	vector<ExpMapVtx> m_expMap;
 
 	bool m_bL, m_bR, m_bM;
