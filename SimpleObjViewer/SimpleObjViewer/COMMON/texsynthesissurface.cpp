@@ -349,8 +349,6 @@ EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec
 
 
 
-
-
 EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec2d &uv)
 {
 	const int    *tidx = mesh.m_polys[trgtPolyIdx].tIdx;
