@@ -156,6 +156,157 @@ void t_genPolygonIDtexture
 
 
 
+inline double t_distance2D_sq(const EVec3d &x1, const EVec3d &x2){
+	return (x1[0] - x2[0]) * (x1[0] - x2[0]) + 
+		   (x1[1] - x2[1]) * (x1[1] - x2[1]);
+}
+inline double t_distance2D( const EVec3d& x1, const EVec3d &x2){
+	return sqrt( t_distance2D_sq(x1, x2) ); 
+}
+
+
+
+// ph = p0 + t * (lineP1 - lineP0) / |lineP1 - lineP0)|
+inline double t_distPointToLineSegment2D( 
+	const EVec3d &p , 
+	const EVec3d &lineP0, 
+	const EVec3d &lineP1,
+	double &t)
+{
+	t =  (p[0] - lineP0[0]) * (lineP1[0] - lineP0[0]) + 
+		 (p[1] - lineP0[1]) * (lineP1[1] - lineP0[1]);
+	t /= t_distance2D_sq(lineP0,lineP1);
+
+	if( t < 0 ) { t = 0; return t_distance2D( p, lineP0 );}
+	if( t > 1 ) { t = 1; return t_distance2D( p, lineP1 );}
+
+	double x = lineP0[0]  + t * (lineP1[0]-lineP0[0]) - p[0];
+	double y = lineP0[1]  + t * (lineP1[1]-lineP0[1]) - p[1];
+
+	return sqrt( x*x + y*y);
+}
+
+
+/*
+  pixel p1 is inside the triangle 
+  pixel p2 run out from the triangle
+
+      seam edge
+	      e
+          |
+          |
+   poly1  |   poly2  
+      p1  -   p2  
+(inside)  |  (outside)
+          |
+          |
+  
+  map p2 considering seam on the atlas
+*/
+EVec3i t_getNeighbors(
+	const int W,
+	const int H,
+	const TTexMesh &mesh,
+	const int      *polyIdTex,
+	const EVec3i   &p1, 
+	const EVec3i   &p2 )
+{
+
+	const int   polyI = polyIdTex[p1[2]];
+	if (polyI == -1)
+	{
+		fprintf( stderr, "never comes here\n");
+		return EVec3i(-1,-1,-1);
+	}
+
+	const TPoly &poly1 = mesh.m_polys[polyI];
+
+	//get closest edge
+	const EVec3d &uv0 = mesh.m_uvs[ poly1.tIdx[0] ];
+	const EVec3d &uv1 = mesh.m_uvs[ poly1.tIdx[1] ];
+	const EVec3d &uv2 = mesh.m_uvs[ poly1.tIdx[2] ];
+
+
+	EVec3d pixPos( (p1[0]+0.5) / W, (p1[1]+0.5)/H, 0);
+	double t0,t1,t2;
+	double d0 = t_distPointToLineSegment2D( pixPos, uv0, uv1, t0 );
+	double d1 = t_distPointToLineSegment2D( pixPos, uv1, uv2, t1 );
+	double d2 = t_distPointToLineSegment2D( pixPos, uv2, uv0, t2 );
+
+	//k = 0(01), 1(12), 2(20)
+	int k = ( d0<= d1 && d0 <= d2 && mesh.m_edges[ poly1.edge[0] ].bAtlsSeam ) ? 0 : 
+		    ( d1<= d0 && d1 <= d2 && mesh.m_edges[ poly1.edge[1] ].bAtlsSeam ) ? 1 : 
+			(                        mesh.m_edges[ poly1.edge[2] ].bAtlsSeam ) ? 2 : -1;
+	if( k == -1 ) return EVec3i(-1,-1,-1);
+
+
+	const int poly1v0 = poly1.vIdx[ k       ];
+	const int poly1v1 = poly1.vIdx[ (k+1)%3 ];
+
+
+	const TEdge &e     = mesh.m_edges[ poly1.edge[k] ];
+	const TPoly &poly2 = mesh.m_polys[ (polyI != e.p[0]) ? e.p[0] : e.p[1] ];
+
+	//poly1‚ª¶‰ñ‚è‚È‚Ì‚Å poly 2‚Í‰E‰ñ‚è
+	const EVec3d &p2uv0 = mesh.m_uvs[ poly2.tIdx[0] ];
+	const EVec3d &p2uv1 = mesh.m_uvs[ poly2.tIdx[1] ];
+	const EVec3d &p2uv2 = mesh.m_uvs[ poly2.tIdx[2] ];
+
+	EVec3d uv;
+	if ( poly1v0 == poly2.vIdx[1] && poly1v1 == poly2.vIdx[0] ) uv = t0 * (p2uv0 - p2uv1 ) + p2uv1; 
+	if ( poly1v0 == poly2.vIdx[2] && poly1v1 == poly2.vIdx[1] ) uv = t1 * (p2uv1 - p2uv2 ) + p2uv2; 
+	if ( poly1v0 == poly2.vIdx[0] && poly1v1 == poly2.vIdx[2] ) uv = t2 * (p2uv2 - p2uv0 ) + p2uv0; 
+
+	int u = uv[0] * W;
+	int v = uv[1] * H;
+	int I = u + v * W;
+	if( polyIdTex[I] != -1 ) return EVec3i(u,v,I);
+	return EVec3i(-1,-1,-1);
+}
+
+
+
+void t_getNeighbors(
+	const int W,
+	const int H,
+	const TTexMesh &mesh,
+	const int      *polyIdTex,
+	const EVec3i   &p, 
+	EVec3i   &n1, 
+	EVec3i   &n2, 
+	EVec3i   &n3,
+	EVec3i   &n4)
+{
+	n1 << -1,-1,-1;
+	n2 << -1,-1,-1;
+	n3 << -1,-1,-1;
+	n4 << -1,-1,-1;
+
+	if (0 <= p[0] )
+	{
+		n1 << p[0]-1, p[1], p[2]-1;
+		if( polyIdTex[n1[2]] == -1 )  n1 = t_getNeighbors(W,H, mesh, polyIdTex, p, n1 );
+	}	
+	if (p[0] < W )
+	{
+		n2 << p[0]+1, p[1], p[2]+1;
+		if( polyIdTex[n2[2]] == -1 )  n2 = t_getNeighbors(W,H, mesh, polyIdTex, p, n2 );
+	}
+
+	if (0 <= p[1] )
+	{
+		n3 << p[0], p[1]-1, p[2]-W;
+		if( polyIdTex[n3[2]] == -1 )  n3 = t_getNeighbors(W,H, mesh, polyIdTex, p, n3 );
+	}
+
+	if (p[1] < H)
+	{
+		n4 << p[0], p[1]+1, p[2]+W;
+		if( polyIdTex[n4[2]] == -1 )  n4 = t_getNeighbors(W,H, mesh, polyIdTex, p, n4 );
+	}
+
+}
+
 
 
 
@@ -182,7 +333,7 @@ void t_genPolygonIDtexture
 
 void TextureSynthesisOnSurface
 (
-	const TTexMesh  &mesh, //mesh should be have tex coord
+	const TTexMesh       &mesh, //mesh should be have tex coord
 	const vector<EVec3d> &p_Flow, 
 
 	const TImage2D  &sampleTex,
@@ -192,10 +343,12 @@ void TextureSynthesisOnSurface
 	const double pitch,
 	const int W,
 	const int H, 
+	
 	TImage2D &trgtTex
 )
 {
-	trgtTex.AllocateImage(W,H,0);
+	const int WH = W * H;
+	trgtTex.AllocateImage(W, H,0);
 
 	int *polyIdTex = new int[W*H];
 	t_genPolygonIDtexture( mesh, W,H, polyIdTex);
@@ -203,4 +356,50 @@ void TextureSynthesisOnSurface
 
 
 
+	//get initial pixel 
+	int startPixel = -1;
+	for (int i = 0; i < WH; ++i) if( polyIdTex[i] != -1) {
+		startPixel = i; 
+		break;
+	}
+
+	if (startPixel == -1)
+	{
+		fprintf(stderr, "no foregrund\n");
+		return;
+	}
+
+	int *dist = new int[WH];
+	for (int i = 0; i < WH; ++i)
+	{
+		dist[i] = -1;
+	}
+
+	
+	//grow from it
+	list<EVec3i> Q;
+	Q.push_back( EVec3i( startPixel%W, startPixel/W, startPixel));
+	dist[ startPixel ] = 0;
+
+	while( !Q.empty() )
+	{
+		EVec3i p = Q.front();
+		Q.pop_front();
+
+		EVec3i n1, n2, n3, n4;
+		t_getNeighbors(W,H,mesh, polyIdTex, p, n1, n2, n3, n4);
+
+		if (n1[0] != -1 && dist[n1[2]] == -1){ dist[n1[2]] = dist[p[2]] + 1; Q.push_back( n1 ); }
+		if (n2[0] != -1 && dist[n2[2]] == -1){ dist[n2[2]] = dist[p[2]] + 1; Q.push_back( n2 ); }
+		if (n3[0] != -1 && dist[n3[2]] == -1){ dist[n3[2]] = dist[p[2]] + 1; Q.push_back( n3 ); }
+		if (n4[0] != -1 && dist[n4[2]] == -1){ dist[n4[2]] = dist[p[2]] + 1; Q.push_back( n4 ); }
+	}
+
+
+	for (int i = 0; i < WH; ++i) if( polyIdTex[i] != -1)
+	{
+		if( dist[i] == -1) trgtTex.setPix(4*i, 0,0,255,0 );
+		else if( dist[i]%80 == 1 || dist[i]%80 == 0) trgtTex.setPix(4*i, 256,0,0,0);
+		else trgtTex.setPix(4*i, 64,64,0,0);
+	}
 }

@@ -79,12 +79,12 @@ CSimpleObjViewerView::CSimpleObjViewerView()
 	m_mesh.Translate( -gc );
 	m_mesh.updateNormal();
 
-	m_expMap.resize(m_mesh.m_vSize);
 
+	TImage2D sampleTex;
 	CFileDialog dlg1(TRUE, NULL, NULL, OFN_HIDEREADONLY, "texture (*.bmp;*.jpg)|*.bmp;*.jpg||");
 	if (dlg1.DoModal() != IDOK) exit(0);
 	bool flip;
-	sample.AllocateFromFile( dlg1.GetPathName(), flip, 0);
+	sampleTex.AllocateFromFile( dlg1.GetPathName(), flip, 0);
 
 
 
@@ -99,7 +99,8 @@ CSimpleObjViewerView::CSimpleObjViewerView()
 		pFlow[i].normalize();
 	}
 
-	TextureSynthesisOnSurface( m_mesh, pFlow, sample, 5, 0.01, 2000, 2000, m_texture);
+	//m_texture = sampleTex;
+	TextureSynthesisOnSurface( m_mesh, pFlow, sampleTex, 5, 0.01, 2000, 2000, m_texture);
 
 
 
@@ -252,50 +253,33 @@ void CSimpleObjViewerView::OnPaint()
 	EVec3d *Ns = m_mesh.m_v_norms;
 	TPoly  *Ps = m_mesh.m_polys  ;
 
+	EVec3d *Ts = m_mesh.m_uvs    ;
 
 	glBegin( GL_TRIANGLES );
 	for(int p=0; p < m_mesh.m_pSize; ++p)
 	{
-		int *idx = Ps[p].vIdx;
-		glTexCoord2dv(m_expMap[idx[0]].pos.data()); glNormal3dv(Ns[idx[0]].data()); glVertex3dv(Vs[idx[0]].data());
-		glTexCoord2dv(m_expMap[idx[1]].pos.data()); glNormal3dv(Ns[idx[1]].data()); glVertex3dv(Vs[idx[1]].data());
-		glTexCoord2dv(m_expMap[idx[2]].pos.data()); glNormal3dv(Ns[idx[2]].data()); glVertex3dv(Vs[idx[2]].data());
+		int *vidx = Ps[p].vIdx;
+		int *tidx = Ps[p].tIdx;
+		glTexCoord2dv( Ts[tidx [0]].data()); glNormal3dv(Ns[vidx[0]].data()); glVertex3dv(Vs[vidx[0]].data());
+		glTexCoord2dv( Ts[tidx [1]].data()); glNormal3dv(Ns[vidx[1]].data()); glVertex3dv(Vs[vidx[1]].data());
+		glTexCoord2dv( Ts[tidx [2]].data()); glNormal3dv(Ns[vidx[2]].data()); glVertex3dv(Vs[vidx[2]].data());
 	}
 	glEnd();
 
+
 	glDisable( GL_TEXTURE_2D );
-
-
-
-
-	
-	static vector<int> visPathVerts(0);
-	if ((int)visPathVerts.size() == 0)
+	glDisable(GL_LIGHTING );
+	glBegin( GL_LINES );
+	for(int ei=0; ei < m_mesh.m_eSize; ++ei)
 	{
-		for (int k = 0; k < 200; ++k)
-		{
-			int i = (int)( m_mesh.m_vSize * rand() / (double)RAND_MAX );
-			visPathVerts.push_back(i);
-		}
+		int* v=m_mesh.m_edges[ei].v;
+
+		if( m_mesh.m_edges[ei].bAtlsSeam ) glColor3d(1,0,0);
+		else                              continue; 
+		glVertex3dv(Vs[v[0]].data());
+		glVertex3dv(Vs[v[1]].data());
 	}
-	
-	glLineWidth(2);
-	
-	if (m_expMap.size() != 0)
-	{
-		glDisable( GL_LIGHTING );
-		glColor3d(1,1,0.5);
-
-		for (const auto startS : visPathVerts)
-		{
-			glBegin( GL_LINE_STRIP );
-			for( int piv = startS; piv >= 0; piv = m_expMap[piv].from) glVertex3dv( m_mesh.m_verts[piv].data() );
-			glEnd();
-		}
-	}
-
-
-
+	glEnd();
 	m_ogl.OnDrawEnd();
 
 }
@@ -363,20 +347,7 @@ void CSimpleObjViewerView::OnMouseMove(UINT nFlags, CPoint point)
 
 		if (m_mesh.pickByRay(rayP, rayD, pos, polyIdx))
 		{
-			expnentialMapping( m_mesh, pos, polyIdx, m_expMap);
 
-			double scale = 0.03;
-			for( auto &p : m_expMap)
-			{
-				p.pos *= scale;
-				p.pos += EVec2d(0.5f, 0.5f);
-
-				if( p.pos[0] < 0.1) p.pos[0] = 0.1;
-				if( p.pos[1] < 0.1) p.pos[1] = 0.1;
-				if( p.pos[0] > 0.9) p.pos[0] = 0.9;
-				if( p.pos[1] > 0.9) p.pos[1] = 0.9;
-
-			}
 		}
 		m_ogl.RedrawWindow();
 	}

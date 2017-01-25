@@ -18,6 +18,7 @@ void TextureSynthesisOnSurface
 	const double pitch,
 	const int W,
 	const int H, 
-	const TImage2D &trgtTex
+	
+	TImage2D &trgtTex
 );
 

@@ -16,7 +16,6 @@ class CSimpleObjViewerView : public CView
 	TOGL		      m_ogl    ;
 	TTexMesh	      m_mesh   ;
 	TImage2D          m_texture;
-	vector<ExpMapVtx> m_expMap;
 
 	bool m_bL, m_bR, m_bM;
 

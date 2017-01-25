@@ -9,11 +9,29 @@
 using namespace std;
 
 
+
+/*
+                   + v[0],t[0]
+				 / | 
+			    /  | 
+		e[0]   /   | e[2]
+			  /    |
+			 /     |
+v[1],t[1]   +------+ v[2],t[2]
+　　　　　　　e[1]
+　　　
+　　　
+*/
+
+
+
 class TPoly
 {
 public:
-	int vIdx[3];
+	int vIdx[3]; 
 	int tIdx[3];
+	
+	int edge[3]; //edgeIdx
 
     TPoly(int v0=0, int v1=0, int v2=0, int t0=0, int t1=0, int t2=0){ 
 		vIdx[0] = v0; vIdx[1] = v1; vIdx[2] = v2;
@@ -29,6 +47,48 @@ public:
 	TPoly& operator= (const TPoly  &v){ Set(v); return *this; }
 };
 
+
+
+
+/*
+      + v[1]
+	  |
+	  |
+ p[0] | P[1]
+	  |
+	  |
+	  + v[0]
+
+*/
+class TEdge
+{
+public:
+	int v[2]; //v0 < v1
+	int p[2];
+	bool bAtlsSeam; //is seam on the atras?
+
+
+	TEdge(int v0=-1, int v1=-1)
+	{
+		v[0] = v0;
+		v[1] = v1;
+		p[0] = p[1] = -1;
+		bAtlsSeam = false;
+	}
+
+	TEdge(const TEdge &e ){ Set(e); }
+	TEdge& operator= (const TEdge  &e){ Set(e); return *this; }
+
+	void Set( const TEdge &e){
+		memcpy( v, e.v, sizeof( int ) * 2);
+		memcpy( p, e.p, sizeof( int ) * 2);
+		bAtlsSeam = e.bAtlsSeam;
+	}
+
+
+
+
+};
 
 
 inline bool t_intersectRayToTriangle
@@ -67,6 +127,8 @@ inline bool t_intersectRayToTriangle
 class TTexMesh
 {
 public:
+
+	//Vertex 
 	int    m_vSize ;
 	EVec3d *m_verts  ;
 	EVec3d *m_v_norms;
@@ -74,14 +136,18 @@ public:
 	vector<vector<int>> m_v_RingPs;
 	vector<vector<int>> m_v_RingVs;
 
-
+	//UV coords 
 	int m_uvSize;
 	EVec3d *m_uvs    ;
 
+	//Polys
 	int m_pSize     ;
 	TPoly *m_polys  ;
 	EVec3d *m_p_norms;
 
+	//Edges
+	int m_eSize;
+	TEdge *m_edges;
 
 
 	TTexMesh()
@@ -95,6 +161,9 @@ public:
 
 		m_pSize   = 0;
 		m_polys   = 0;
+
+		m_eSize   = 0;
+		m_edges   = 0;
 	}
 	TTexMesh(const TTexMesh &src) { Set(src); }
 	TTexMesh& operator=(const TTexMesh &src) { Set(src); return *this; }
@@ -109,10 +178,12 @@ public:
 		m_vSize  = 0;
 		m_uvSize = 0;
 		m_pSize  = 0;
-		if( m_verts   != 0) delete[] m_verts ;
-		if( m_v_norms != 0) delete[] m_v_norms ;
-		if( m_uvs     != 0) delete[] m_uvs ;
-		if( m_polys   != 0) delete[] m_polys ;
+		m_eSize  = 0;
+		if( m_verts   != 0) delete[] m_verts  ;
+		if( m_v_norms != 0) delete[] m_v_norms;
+		if( m_uvs     != 0) delete[] m_uvs    ;
+		if( m_polys   != 0) delete[] m_polys  ;
+		if( m_edges   != 0) delete[] m_edges  ;
 	}
 
 	void Set( const TTexMesh &m)
@@ -121,9 +192,9 @@ public:
 		m_vSize = m.m_vSize;
 		if (m_vSize != 0)
 		{
-			m_verts = new EVec3d[m_vSize];
+			m_verts   = new EVec3d[m_vSize];
 			m_v_norms = new EVec3d[m_vSize];
-			memcpy(m_verts, m.m_verts, sizeof(EVec3d)*m_vSize);
+			memcpy(m_verts  , m.m_verts  , sizeof(EVec3d)*m_vSize);
 			memcpy(m_v_norms, m.m_v_norms, sizeof(EVec3d)*m_vSize);
 		}
 
@@ -142,6 +213,13 @@ public:
 		}
 		m_v_RingPs = m.m_v_RingPs;
 		m_v_RingVs = m.m_v_RingVs;
+
+		m_eSize = m.m_eSize;
+		if (m_eSize != 0)
+		{
+			m_edges = new TEdge[m_eSize];
+			memcpy(m_edges, m.m_edges, sizeof(TEdge)*m_eSize);
+		}
 	}
 
 
@@ -221,11 +299,77 @@ public:
 		c = 0;
 		for( auto it = polys_list.begin(); it != polys_list.end(); ++it) m_polys[c++] = *it;
 
-
-		updateNormal();
+		updateEdges   ();
+		updateNormal  ();
 		updateRingInfo();
 		fprintf(stderr, "loaded object file info : %d %d %d\n", m_vSize, m_uvSize, m_pSize);
 		return true;
+	}
+
+
+	void updateEdges()
+	{
+		static const int edg_mat[3][2]  = {{0,1},{1,2},{2,0}} ;
+		
+		vector<TEdge> Es; //まだサイズが不明
+		vector< list<int> > emanatingEdges( m_vSize ) ;//list for Eminating edge IDs
+
+		for( int pi = 0; pi < m_pSize; ++pi )
+		{
+			const int *pVtx = m_polys[pi].vIdx ;
+		
+			for( int i = 0; i < 3; i++ )
+			{
+				//edgeを生成: v[0,1], p[0,1], oneEdge, polygon.edge登録
+				int v0 = pVtx[ edg_mat[i][0] ] ;
+				int v1 = pVtx[ edg_mat[i][1] ] ;
+ 
+				bool bInverted = v0 > v1;
+				if( bInverted ) std::swap( v0, v1 );
+				
+				//find eminating edge
+				list<int>& emanEs = emanatingEdges[ v0 ] ;
+				list<int>::iterator it;
+				for( it = emanEs.begin() ; it != emanEs.end() ; it++ ) if( Es[*it].v[1] == v1 ) break ;
+
+				// the edge not exixt --> add new one
+				if( it == emanEs.end() ){
+					Es.push_back( TEdge(v0, v1) ) ;
+					emanatingEdges[ v0 ].push_back( (int)Es.size()-1 );
+					Es.back().p[bInverted?1:0] = pi;
+					m_polys[pi].edge[i] =(int) Es.size()-1;
+				}
+				else
+				{
+					Es[*it].p[bInverted?1:0] = pi;
+					m_polys[pi].edge[i]      = *it;
+				}
+			}
+		}
+
+		m_eSize = (int)Es.size();
+		m_edges = new TEdge[ m_eSize ];
+		for( int ei=0; ei < m_eSize; ++ei) 
+		{
+			//copy
+			m_edges[ei] = Es[ei];
+
+			//set bAtlsSeam
+			TEdge &e   = m_edges[ei];
+			TPoly &pA  = m_polys[e.p[0]];
+			TPoly &pB  = m_polys[e.p[1]];
+			e.bAtlsSeam = true;
+
+			for (int i = 0; i < 3 && e.bAtlsSeam; ++i)
+			for (int j = 0; j < 3 && e.bAtlsSeam; ++j)
+			{
+				int tA0 = pA.tIdx[ edg_mat[i][0] ];
+				int tA1 = pA.tIdx[ edg_mat[i][1] ];
+				int tB0 = pB.tIdx[ edg_mat[j][0] ];
+				int tB1 = pB.tIdx[ edg_mat[j][1] ];
+				if( (tA0 == tB0 && tA1 == tB1) || ( tA0 == tB1 && tA1 == tB0 ) ) e.bAtlsSeam = false;
+			}
+		}
 	}
 
 
