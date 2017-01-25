@@ -61,6 +61,7 @@ void expnentialMapping
 	const TTexMesh  &mesh,
 	const EVec3d    &startP,
 	const int       &polyIdx,
+	const double    &maxDist, //do not compute further than maxDist (Set DBL_MAX when not necessary)
 	vector<ExpMapVtx> &expMap
 )
 {
@@ -93,14 +94,19 @@ void expnentialMapping
 
 
 
-
 	//Dijikstra Growth
 	while (!Q.empty())
 	{
 		//pivot vertex
-		int   pivI = Q.begin()->second;
+		double pivD = Q.begin()->first ;
+		int    pivI = Q.begin()->second;
 		Q.erase( Q.begin () );
 
+		if( pivD > maxDist )continue;
+		
+		expMap[pivI].flg = 2;
+
+		//grow this vertex
 		const vector<int> &Nei = mesh.m_v_RingVs[pivI];
 
 		EVec3d localO  =  verts[pivI];
@@ -108,7 +114,6 @@ void expnentialMapping
 		EVec3d localN  =  mesh.m_v_norms[pivI];
 		EVec3d localX  =  (tmp - tmp.dot(localN) * localN ).normalized();
 		EVec3d localY  =  Eigen::AngleAxisd(M_PI * 0.5, localN ) * localX;
-		expMap[pivI].flg = 2;
 
 		//compute coordinate transformation
 		Eigen::AngleAxisd localToBase = calcRotV1toV2( localN, baseN);

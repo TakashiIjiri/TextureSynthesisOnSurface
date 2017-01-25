@@ -65,6 +65,7 @@ void expnentialMapping
 	const TTexMesh    &mesh   ,
 	const EVec3d      &startP ,
 	const int         &polyIdx,
+	const double      &maxDist, //do not compute further than maxDist
 	vector<ExpMapVtx> &expMap
 
 );

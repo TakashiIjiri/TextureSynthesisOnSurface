@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "texsynthesissurface.h"
+#include "expmap.h"
 
 
 
@@ -317,6 +318,92 @@ void t_getNeighbors(
 
 
 
+// point p in (f0,f1,f2) is mapped on (t0,t1,t2)
+EVec3d t_mapPointByTriangle
+(
+	const EVec3d &p ,
+	const EVec3d &f0, const EVec3d &f1, const EVec3d &f2,
+	const EVec3d &t0, const EVec3d &t1, const EVec3d &t2
+	)
+{
+	EVec3d d1 = f1-f0;
+	EVec3d d2 = f2-f0;
+	EVec3d b  = p -f0;
+	double s, t;
+	t_solve2by2LinearEquation(d1.dot(d1), d1.dot(d2), 
+		                      d2.dot(d1), d2.dot(d2), 
+		                      d1.dot(b ), d2.dot(b ), s, t);
+	return t0 + s * (t1-t0) + t * (t2-t0);
+}
+	
+
+EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec2d &uv)
+{
+	const int   *tidx  = mesh.m_polys[ trgtPolyIdx ].tIdx;
+	const int   *vidx  = mesh.m_polys[ trgtPolyIdx ].vIdx;
+	return t_mapPointByTriangle(uv, 
+			mesh.m_uvs  [tidx[0]], mesh.m_uvs  [tidx[1]], mesh.m_uvs  [tidx[2]],
+			mesh.m_verts[vidx[0]], mesh.m_verts[vidx[1]], mesh.m_verts[vidx[2]] );
+}
+
+
+
+
+
+
+EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec2d &uv)
+{
+	const int    *tidx = mesh.m_polys[trgtPolyIdx].tIdx;
+	const EVec3d &p0   = mesh.m_uvs[tidx[0]];
+	const EVec3d &p1   = mesh.m_uvs[tidx[1]];
+	const EVec3d &p2   = mesh.m_uvs[tidx[2]];
+
+	double s, t;
+	t_solve2by2LinearEquation(p1[0] - p0[0], p2[0] - p0[0], 
+		                      p1[1] - p0[1], p2[1] - p0[1], 
+		                      uv[0] - p0[0], uv[1] - p0[1], s, t);
+	
+	const int   *vidx = mesh.m_polys[trgtPolyIdx].vIdx;
+	const EVec3d &v0 = mesh.m_verts[vidx[0]];
+	const EVec3d &v1 = mesh.m_verts[vidx[1]];
+	const EVec3d &v2 = mesh.m_verts[vidx[2]];
+	return v0 + s * (v1-v0) + t * (v2-v0);
+}
+
+
+//sampling texture patch around pixel by using exponential mapping
+void t_getNeighboringPatch(
+	const int &W ,
+	const int &H ,
+	const TImage2D &trgtTex ,
+	const TTexMesh &mesh    ,
+
+	const EVec3i   &pixOnTex,
+	const int      &pixPolyI,
+
+	const int    patchR,
+	const double samplePitch, 
+	TImage2D &patch//should be allocated
+)
+{
+	//pixOnTex --> 3D Point 
+	EVec3d pixUV( (pixOnTex[0] + 0.5) / W, (pixOnTex[1] + 0.5) / H );
+	EVec3d pos3D = t_mapPoint_UVto3D(mesh, pixPolyI, pixUV);
+
+	//compute exponential Mapping
+	vector< ExpMapVtx > expMapVs;
+	expnentialMapping( mesh, pos3D, pixPolyI, DBL_MAX, expMapVs);
+
+	//sampling pixel by using 
+
+}
+
+
+
+
+
+
+
 
 
 
@@ -332,6 +419,83 @@ void t_getNeighbors(
 
 
 void TextureSynthesisOnSurface
+(
+	const TTexMesh       &mesh, //mesh should be have tex coord
+	const vector<EVec3d> &p_Flow, 
+
+	const TImage2D  &sampleTex,
+
+	const int    winR ,
+	const double pitch,
+	const int W,
+	const int H, 
+	
+	TImage2D &trgtTex
+)
+{
+	const int WH = W * H;
+	trgtTex.AllocateImage(W,H,0);
+
+	int *polyIdTex = new int[W*H];
+	t_genPolygonIDtexture( mesh, W,H, polyIdTex);
+
+
+	//get initial pixel 
+	int startPixel = -1;
+	for (int i = 0; i < WH; ++i) if( polyIdTex[i] != -1) {
+		startPixel = i; 
+		break;
+	}
+
+	if (startPixel == -1)
+	{
+		fprintf(stderr, "no foregrund\n");
+		return;
+	}
+
+	int *dist = new int[WH];
+	for (int i = 0; i < WH; ++i)
+	{
+		dist[i] = -1;
+	}
+
+	
+	//grow from it
+	list<EVec3i> Q;
+	Q.push_back( EVec3i( startPixel%W, startPixel/W, startPixel));
+	dist[ startPixel ] = 0;
+
+	while( !Q.empty() )
+	{
+		EVec3i p = Q.front();
+		Q.pop_front();
+
+		TImage2D patch;
+		t_getNeighboringPatch(W,H,trgtTex,mesh, p,  5, 0.01, patch);
+		
+
+		EVec3i n1, n2, n3, n4;
+		t_getNeighbors(W,H,mesh, polyIdTex, p, n1, n2, n3, n4);
+
+		if (n1[0] != -1 && dist[n1[2]] == -1){ dist[n1[2]] = dist[p[2]] + 1; Q.push_back( n1 ); }
+		if (n2[0] != -1 && dist[n2[2]] == -1){ dist[n2[2]] = dist[p[2]] + 1; Q.push_back( n2 ); }
+		if (n3[0] != -1 && dist[n3[2]] == -1){ dist[n3[2]] = dist[p[2]] + 1; Q.push_back( n3 ); }
+		if (n4[0] != -1 && dist[n4[2]] == -1){ dist[n4[2]] = dist[p[2]] + 1; Q.push_back( n4 ); }
+	}
+
+
+	for (int i = 0; i < WH; ++i) if( polyIdTex[i] != -1)
+	{
+		if( dist[i] == -1) trgtTex.setPix(4*i, 0,0,255,0 );
+		else if( dist[i]%80 == 1 || dist[i]%80 == 0) trgtTex.setPix(4*i, 256,0,0,0);
+		else trgtTex.setPix(4*i, 64,64,0,0);
+	}
+}
+
+
+
+
+void SimpleRegionGrowing
 (
 	const TTexMesh       &mesh, //mesh should be have tex coord
 	const vector<EVec3d> &p_Flow, 
