@@ -65,7 +65,7 @@ void expnentialMapping
 	vector<ExpMapVtx> &expMap
 )
 {
-	fprintf( stderr, "start...   \n");
+	//fprintf( stderr, "start...   \n");
 
 	const EVec3d *verts = mesh.m_verts;
 	const TPoly  *polys = mesh.m_polys;
@@ -163,7 +163,7 @@ void expnentialMapping
 			}
 		}
 	}
-	fprintf( stderr, "done...\n");
+	//fprintf( stderr, "done...\n");
 }
 
 

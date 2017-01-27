@@ -6,6 +6,7 @@
 #include "timage.h"
 #include <list>
 #include <vector>
+#include <set>
 using namespace std;
 
 
@@ -558,6 +559,25 @@ public:
 		return depth != DBL_MAX;
 	}
 
+
+
+	void getNringPs(const int pid, const int N, set<int> &Ps) const
+	{
+		Ps.insert(pid);
+
+		for (int k = 0; k < N; ++k)
+		{
+			set<int> tmp = Ps;
+			Ps.clear();
+
+			for( const auto it : tmp) 
+			{
+				int *vidx = m_polys[ it ].vIdx;
+				for (int i = 0; i < 3; ++i) 
+					for( auto pid : m_v_RingPs[ vidx[i] ] ) Ps.insert( pid );
+			}			
+		}
+	}
 
 
 };

@@ -38,3 +38,33 @@ void SimpleRegionGrowing
 	
 	TImage2D &trgtTex
 );
+
+
+
+
+
+
+
+void t_genPolygonIDtexture
+(
+	const TTexMesh &mesh,
+	const int W,
+	const int H,
+	int *polyIdTex
+);
+
+//sampling texture patch around pixel by using exponential mapping
+void t_getNeighboringPatch(
+	const int &W ,
+	const int &H ,
+	const TImage2D &trgtTex ,
+	const TTexMesh &mesh    ,
+
+	const EVec3i   &pixOnTex,
+	const int      &pixPolyI,
+
+	const int    patchR,
+	const double samplePitch, 
+	TImage2D &patch, //should be allocated
+	bool printDebug
+);

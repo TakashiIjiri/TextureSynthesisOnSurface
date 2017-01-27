@@ -3,6 +3,7 @@
 #include "texsynthesissurface.h"
 #include "expmap.h"
 
+#include <set>
 
 
 
@@ -258,8 +259,8 @@ EVec3i t_getNeighbors(
 	if ( poly1v0 == poly2.vIdx[2] && poly1v1 == poly2.vIdx[1] ) uv = t1 * (p2uv1 - p2uv2 ) + p2uv2; 
 	if ( poly1v0 == poly2.vIdx[0] && poly1v1 == poly2.vIdx[2] ) uv = t2 * (p2uv2 - p2uv0 ) + p2uv0; 
 
-	int u = uv[0] * W;
-	int v = uv[1] * H;
+	int u = (int)(uv[0] * W);
+	int v = (int)(uv[1] * H);
 	int I = u + v * W;
 	if( polyIdTex[I] != -1 ) return EVec3i(u,v,I);
 	return EVec3i(-1,-1,-1);
@@ -316,7 +317,7 @@ void t_getNeighbors(
 
 
 
-
+/*
 
 // point p in (f0,f1,f2) is mapped on (t0,t1,t2)
 EVec3d t_mapPointByTriangle
@@ -337,7 +338,7 @@ EVec3d t_mapPointByTriangle
 }
 	
 
-EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec2d &uv)
+EVec3d t_mapPoint_UVto3D1(const TTexMesh &mesh, const int trgtPolyIdx, const EVec3d &uv)
 {
 	const int   *tidx  = mesh.m_polys[ trgtPolyIdx ].tIdx;
 	const int   *vidx  = mesh.m_polys[ trgtPolyIdx ].vIdx;
@@ -346,10 +347,9 @@ EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec
 			mesh.m_verts[vidx[0]], mesh.m_verts[vidx[1]], mesh.m_verts[vidx[2]] );
 }
 
+*/
 
-
-
-EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec2d &uv)
+EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec3d &uv)
 {
 	const int    *tidx = mesh.m_polys[trgtPolyIdx].tIdx;
 	const EVec3d &p0   = mesh.m_uvs[tidx[0]];
@@ -369,6 +369,7 @@ EVec3d t_mapPoint_UVto3D(const TTexMesh &mesh, const int trgtPolyIdx, const EVec
 }
 
 
+
 //sampling texture patch around pixel by using exponential mapping
 void t_getNeighboringPatch(
 	const int &W ,
@@ -381,34 +382,117 @@ void t_getNeighboringPatch(
 
 	const int    patchR,
 	const double samplePitch, 
-	TImage2D &patch//should be allocated
+	TImage2D &patch, //should be allocated
+	bool printDebug
 )
 {
 	//pixOnTex --> 3D Point 
-	EVec3d pixUV( (pixOnTex[0] + 0.5) / W, (pixOnTex[1] + 0.5) / H );
+	EVec3d pixUV( (pixOnTex[0] + 0.5) / W, (pixOnTex[1] + 0.5) / H,0 );
 	EVec3d pos3D = t_mapPoint_UVto3D(mesh, pixPolyI, pixUV);
 
 	//compute exponential Mapping
 	vector< ExpMapVtx > expMapVs;
 	expnentialMapping( mesh, pos3D, pixPolyI, DBL_MAX, expMapVs);
 
+	//consider only 2 ring triangles
+	set<int> trgtPs;
+	mesh.getNringPs(pixPolyI,4, trgtPs );
+
+
+	const int patchW = 2 * patchR + 1;
+	patch.AllocateImage( patchW,patchW, 0);
+
+
 	//sampling pixel by using 
+#pragma omp parallel for
+	for( int v = -patchR; v <= patchR; ++v)
+	for (int u = -patchR; u <= patchR; ++u)
+	{
+		EVec3d UV( u*samplePitch, v*samplePitch, 0);
+		
+		//if( printDebug ) fprintf( stderr, "(%d %d)\n", u,v);
+
+		for (auto pi : trgtPs)
+		{
+			const int *vidx = mesh.m_polys[pi].vIdx;
+			const EVec2d &p0 = expMapVs[vidx[0]].pos;
+			const EVec2d &p1 = expMapVs[vidx[1]].pos;
+			const EVec2d &p2 = expMapVs[vidx[2]].pos;
+
+			double s,t;
+			t_solve2by2LinearEquation( p1[0] - p0[0], p2[0] - p0[0],
+									   p1[1] - p0[1], p2[1] - p0[1], UV[0]-p0[0], UV[1]-p0[1],  s,t);
+
+			if( s < 0 || t < 0 || 1 < s+t ) continue;
+
+			const int *tidx = mesh.m_polys[pi].tIdx;
+
+			const EVec3d &uv0 = mesh.m_uvs[tidx[0]];
+			const EVec3d &uv1 = mesh.m_uvs[tidx[1]];
+			const EVec3d &uv2 = mesh.m_uvs[tidx[2]];
+			double up = uv0[0] + s * (uv1[0]-uv0[0]) + t * (uv2[0]-uv0[0]);
+			double vp = uv0[1] + s * (uv1[1]-uv0[1]) + t * (uv2[1]-uv0[1]);
+			int ui = (int)(up * W );
+			int vi = (int)(vp * H );
+
+			//if( printDebug ) fprintf( stderr, "*");
+			//if( printDebug ) fprintf( stderr, "(%d %d %f %f  %d %d)\n", u,v,s,t, ui,vi );
+
+			if (0 <= ui && ui < W && 0 <= vi && vi < H)
+			{
+				int pI = u + patchR + (v + patchR) * patchW;
+				int tI = ui+ W * vi; 
+				memcpy( &patch[4 * pI], &trgtTex.m_RGBA[4*tI], sizeof(byte) * 4 );
+				//if( printDebug ) fprintf( stderr, "1");
+			}
+			break;
+		}
+	}
+
 
 }
 
 
 
+EVec3i t_getBestMatchPixCol(const TImage2D &sampleTex, const TImage2D &patch)
+{
+	const int pW = patch.m_W;
+	const int pH = patch.m_H;
 
+	double minDist = DBL_MAX;
+	int    minI = -1;
 
+	for( int y = 0; y < sampleTex.m_H - pH; ++y)
+	for (int x = 0; x < sampleTex.m_W - pW; ++x)
+	{
+		int d = -1;
+		for( int py = 0; py < pH; ++py)
+		for (int px = 0; px < pW; ++px)
+		{
+			const int pI = 4 * (px + py * pW);
+			if( patch[pI] == 0 &&  patch[pI+1] == 0 && patch[pI+2] == 0) continue;
 
+			const int I = 4 * ((x + px) + sampleTex.m_W * (y + py));
 
+			d += (sampleTex[I+0] - patch[pI+0] ) * (sampleTex[I+0] - patch[pI+0] ) +
+				 (sampleTex[I+1] - patch[pI+1] ) * (sampleTex[I+1] - patch[pI+1] ) +
+				 (sampleTex[I+2] - patch[pI+2] ) * (sampleTex[I+2] - patch[pI+2] ) ;
+		}
 
+		if (d > 0 && d < minDist)
+		{
+			minDist = d;
+			minI = 4 * ((x + pW/2) + sampleTex.m_W * (y + pH/2));
+		}
+	}
 
-
-
-
-
-
+	if( minI == -1 ) {
+		minI = 4 * (int)( sampleTex.m_W * sampleTex.m_H * rand() / (double)RAND_MAX );
+		fprintf( stderr, "**");
+	}
+		
+	return EVec3i( sampleTex[minI], sampleTex[minI+1], sampleTex[minI+2]);
+}
 
 
 
@@ -425,8 +509,8 @@ void TextureSynthesisOnSurface
 
 	const int    winR ,
 	const double pitch,
-	const int W,
-	const int H, 
+	const int    W,
+	const int    H, 
 	
 	TImage2D &trgtTex
 )
@@ -458,6 +542,8 @@ void TextureSynthesisOnSurface
 	}
 
 	
+
+	int count = 0;
 	//grow from it
 	list<EVec3i> Q;
 	Q.push_back( EVec3i( startPixel%W, startPixel/W, startPixel));
@@ -469,8 +555,17 @@ void TextureSynthesisOnSurface
 		Q.pop_front();
 
 		TImage2D patch;
-		t_getNeighboringPatch(W,H,trgtTex,mesh, p,  5, 0.01, patch);
+		t_getNeighboringPatch(W,H, trgtTex, mesh, p, polyIdTex[p[2]], winR, pitch, patch, count % 500 == 0);
 		
+		EVec3i color = t_getBestMatchPixCol(sampleTex, patch);
+		trgtTex.setPix(4 * p[2], color[0],color[1],color[2],128);
+
+		CString str;
+		str.Format( "patch%d.bmp", count);
+		if( count % 500 == 0) patch.saveAsFile(str, 0);
+
+		count++;
+
 
 		EVec3i n1, n2, n3, n4;
 		t_getNeighbors(W,H,mesh, polyIdTex, p, n1, n2, n3, n4);
@@ -479,15 +574,19 @@ void TextureSynthesisOnSurface
 		if (n2[0] != -1 && dist[n2[2]] == -1){ dist[n2[2]] = dist[p[2]] + 1; Q.push_back( n2 ); }
 		if (n3[0] != -1 && dist[n3[2]] == -1){ dist[n3[2]] = dist[p[2]] + 1; Q.push_back( n3 ); }
 		if (n4[0] != -1 && dist[n4[2]] == -1){ dist[n4[2]] = dist[p[2]] + 1; Q.push_back( n4 ); }
+
+		if(  count % 500 == 0) fprintf( stderr, "%d/%d--", count,W*H);
+		//if( count > 10000) break;
 	}
 
-
+	/*
 	for (int i = 0; i < WH; ++i) if( polyIdTex[i] != -1)
 	{
 		if( dist[i] == -1) trgtTex.setPix(4*i, 0,0,255,0 );
-		else if( dist[i]%80 == 1 || dist[i]%80 == 0) trgtTex.setPix(4*i, 256,0,0,0);
+		else if( dist[i]%80 == 1 || dist[i]%80 == 0) trgtTex.setPix(4*i, 255,0,0,0);
 		else trgtTex.setPix(4*i, 64,64,0,0);
 	}
+	*/
 }
 
 
@@ -561,7 +660,7 @@ void SimpleRegionGrowing
 	for (int i = 0; i < WH; ++i) if( polyIdTex[i] != -1)
 	{
 		if( dist[i] == -1) trgtTex.setPix(4*i, 0,0,255,0 );
-		else if( dist[i]%80 == 1 || dist[i]%80 == 0) trgtTex.setPix(4*i, 256,0,0,0);
+		else if( dist[i]%80 == 1 || dist[i]%80 == 0) trgtTex.setPix(4*i, 255,0,0,0);
 		else trgtTex.setPix(4*i, 64,64,0,0);
 	}
 }

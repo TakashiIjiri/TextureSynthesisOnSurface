@@ -99,9 +99,12 @@ CSimpleObjViewerView::CSimpleObjViewerView()
 		pFlow[i].normalize();
 	}
 
-	//m_texture = sampleTex;
-	TextureSynthesisOnSurface( m_mesh, pFlow, sampleTex, 5, 0.01, 2000, 2000, m_texture);
+	m_texture = sampleTex;
+	//TextureSynthesisOnSurface( m_mesh, pFlow, sampleTex, 20, 0.2, 500, 500, m_texture);
+	//m_texture.saveAsFile("texture.bmp",0);
 
+	//todoバグ?あり
+	//synthesisのときpatchの中心は黒が素のはずなのに値が這いいちゃってる
 
 
 }
@@ -212,6 +215,8 @@ void CSimpleObjViewerView::OnSize(UINT nType, int cx, int cy)
 }
 
 
+EVec3d visPoint;
+
 
 static float diff[4] = {1.0f, 1.0f, 1.0f, 0.5f};
 static float ambi[4] = {0.6f, 0.5f, .5f, 0.5f};
@@ -275,11 +280,19 @@ void CSimpleObjViewerView::OnPaint()
 		int* v=m_mesh.m_edges[ei].v;
 
 		if( m_mesh.m_edges[ei].bAtlsSeam ) glColor3d(1,0,0);
-		else                              continue; 
+		else                               continue;//glColor3d(1,1,1);
 		glVertex3dv(Vs[v[0]].data());
 		glVertex3dv(Vs[v[1]].data());
 	}
 	glEnd();
+
+
+	glPointSize(15);
+	glBegin(GL_POINTS);
+	glVertex3dv(visPoint.data());
+	glEnd();
+
+
 	m_ogl.OnDrawEnd();
 
 }
@@ -299,6 +312,40 @@ void CSimpleObjViewerView::OnLButtonDown(UINT nFlags, CPoint point)
 {
 	m_bL = true;
 	//m_ogl.BtnDown_Trans(point);
+
+	
+	int polyIdx;
+	EVec3d rayP,rayD, pos;
+	m_ogl.GetCursorRay( point , rayP, rayD);
+
+	if (m_mesh.pickByRay(rayP, rayD, pos, polyIdx))
+	{
+
+		visPoint = pos;
+
+		const int W = m_texture.m_W;
+		const int H = m_texture.m_H;
+		TImage2D patch;
+		int *polyIdTex = new int[W*H];
+		t_genPolygonIDtexture( m_mesh, W,H,polyIdTex);
+
+		int *ti = m_mesh.m_polys[polyIdx].tIdx;
+		int *vi = m_mesh.m_polys[polyIdx].vIdx;
+		EVec3d uv = (m_mesh.m_uvs[ti[0]] + m_mesh.m_uvs[ti[1]] + m_mesh.m_uvs[ti[2]] ) / 3.0;
+		visPoint  = (m_mesh.m_verts[vi[0]] + m_mesh.m_verts[vi[1]] + m_mesh.m_verts[vi[2]] ) / 3.0;
+
+
+		EVec3i pix( (int)(uv[0] * W), (int)(uv[1] * H), (int)(uv[0] * W) + W*(int)(uv[1] * H));
+		t_getNeighboringPatch(W,H, m_texture, m_mesh, pix, polyIdTex[pix[2]], 50, 0.5, patch, false);
+
+
+		fprintf( stderr, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa %d %d\n", polyIdTex[pix[2]], polyIdx);
+		patch.saveAsFile("aaaaa.bmp", 0);
+
+	}
+	m_ogl.RedrawWindow();
+
+	
 }
 
 
